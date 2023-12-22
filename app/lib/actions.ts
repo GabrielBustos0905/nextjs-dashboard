@@ -6,11 +6,24 @@ import { sql } from '@vercel/postgres';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 
+export type State = {
+    errors?: {
+      customerId?: string[];
+      amount?: string[];
+      status?: string[];
+    };
+    message?: string | null;
+  };
+
 const FormShcema = z.object({
     id: z.string(),
-    customerId: z.string(),
-    amount: z.coerce.number(),
-    status: z.enum(['pending', 'paid']),
+    customerId: z.string({
+        invalid_type_error: 'Please select a customer.'
+    }),
+    amount: z.coerce.number().gt(0, { message: 'Please enter an amount greater than $0.'}),
+    status: z.enum(['pending', 'paid'], {
+        invalid_type_error: 'Please select an invoice status.'
+    }),
     date: z.string()
 });
 
@@ -24,12 +37,21 @@ const UpdateInvoice = FormShcema.omit({
     date: true
 })
 
-export async function createInvoice(form: FormData) {
-    const {customerId, amount, status} = CreateInvoiceFormSchema.parse({
+export async function createInvoice(prevState: State, form: FormData) {
+    const validateField = CreateInvoiceFormSchema.safeParse({
         customerId: form.get('customerId'),
         amount: form.get('amount'),
         status: form.get('status')
     })
+    
+    if(!validateField.success) {
+        return {
+            errors: validateField.error.flatten().fieldErrors,
+            message: 'Missing Fields. Failed to Create Invoice.'
+        }
+    }
+
+    const {customerId, amount, status} = validateField.data
 
     // Transformamos para evitar errores de redondeo
     const amountInCents = amount * 100
@@ -51,12 +73,21 @@ export async function createInvoice(form: FormData) {
     redirect('/dashboard/invoices')
 }
 
-export async function updateInvoice(id: string, form: FormData) {
-    const {customerId, amount, status} = UpdateInvoice.parse({
+export async function updateInvoice(id: string, prevState: State, form: FormData) {
+    const validatedFields = UpdateInvoice.safeParse({
         customerId: form.get('customerId'),
         amount: form.get('amount'),
         status: form.get('status')
     })
+
+    if(!validatedFields.success) {
+        return {
+            errors: validatedFields.error.flatten().fieldErrors,
+            message: 'Missing Fields. Failed to Update Invoice.',
+          }
+    }
+
+    const {customerId, amount, status} = validatedFields.data
 
     const amountInCents = amount * 100
 
